@@ -1,0 +1,208 @@
+---
+title: "Project 2 Analysis"
+author: "Roshan Adhikari"
+date: "`r Sys.Date()`"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE)
+library(ggplot2)
+library(dplyr)
+library(corrplot)
+```
+
+## Data Import
+
+```{r data-import}
+# Data import
+# Using relative path assuming the working directory is set to the file's location
+menu <- read.csv("menu.csv")
+print(head(menu))
+str(menu)
+```
+
+## Histogram of Calories
+
+```{r histogram}
+# Histogram of calories
+plot1 <- ggplot(menu, aes(x = Calories)) +
+  geom_histogram(binwidth = 50, fill = "orange", color = "black") +
+  labs(
+    title = "Histogram of Calories",
+    x = "Calories",
+    y = "Frequency"
+  )
+
+print(plot1)
+```
+
+## Correlation Analysis
+
+```{r correlation}
+# Selecting only numeric columns
+numeric_menu <- menu %>% select(where(is.numeric))
+
+# Computed correlation matrix
+corr_matrix <- cor(numeric_menu, use = "complete.obs")
+
+# Corr Heatmap
+corrplot(corr_matrix,
+  method = "color", type = "upper",
+  tl.cex = 0.6, number.cex = 0.5,
+  title = "Correlation Heatmap of Nutritional Features",
+  mar = c(0, 0, 2, 0)
+)
+```
+
+## Top Correlations with Calories
+
+```{r top-correlations}
+# Correlations matrix with Calories
+cal_corr <- corr_matrix[, "Calories"]
+
+# Remove Calories itself
+cal_corr <- cal_corr[names(cal_corr) != "Calories"]
+
+# Descending sort
+sorted_corr <- sort(cal_corr, decreasing = TRUE)
+
+# Dropping features with repeated information
+is_dv <- grepl("Daily.Value", names(sorted_corr), ignore.case = TRUE)
+is_cfat <- names(sorted_corr) == "Calories.from.Fat"
+clean_corr <- sorted_corr[!is_dv & !is_cfat]
+
+# Top correlations
+print(clean_corr[1:5])
+
+# Negative correlations
+neg_corr <- sorted_corr[sorted_corr < 0]
+print(neg_corr)
+```
+
+## Feature Visualization
+
+```{r visualization}
+# Feature selection
+features_1c <- c("Saturated.Fat", "Protein")
+features_1d <- c("Vitamin.C....Daily.Value.")
+
+# Scatter plot for 1(c)
+for (feat in features_1c) {
+  print(
+    ggplot(menu, aes_string(x = feat, y = "Calories")) +
+      geom_point(color = "steelblue") +
+      geom_smooth(method = "lm", se = FALSE, color = "red") +
+      labs(
+        title = paste("Calories vs", feat),
+        x = feat,
+        y = "Calories"
+      )
+  )
+}
+
+# Scatter plot for 1(d)
+for (feat in features_1d) {
+  print(
+    ggplot(menu, aes_string(x = feat, y = "Calories")) +
+      geom_point(color = "darkgreen") +
+      geom_smooth(method = "lm", se = FALSE, color = "red") +
+      labs(
+        title = paste("Calories vs", feat),
+        x = feat,
+        y = "Calories"
+      )
+  )
+}
+
+# Boxplot for 1(c)
+for (feat in features_1c) {
+  print(
+    ggplot(menu, aes_string(y = feat)) +
+      geom_boxplot(fill = "orange") +
+      labs(
+        title = paste("Boxplot of", feat),
+        y = feat
+      )
+  )
+}
+
+# Boxplot for 1(d)
+for (feat in features_1d) {
+  print(
+    ggplot(menu, aes_string(y = feat)) +
+      geom_boxplot(fill = "lightgreen") +
+      labs(
+        title = paste("Boxplot of", feat),
+        y = feat
+      )
+  )
+}
+```
+
+## Outlier Detection and Imputation
+
+```{r outliers}
+# Select numeric columns
+numeric_menu <- menu[sapply(menu, is.numeric)]
+
+# Compute median and sd
+medians <- apply(numeric_menu, 2, median, na.rm = TRUE)
+sds <- apply(numeric_menu, 2, sd, na.rm = TRUE)
+
+print("Median values for all numerical features:")
+print(medians)
+
+print("Standard Deviations:")
+print(sds)
+
+# Copy numeric data
+clean_menu <- numeric_menu
+
+# Function to replace outliers with NaN
+replace_outliers <- function(x) {
+  Q1 <- quantile(x, 0.25, na.rm = TRUE)
+  Q3 <- quantile(x, 0.75, na.rm = TRUE)
+  IQR_val <- Q3 - Q1
+
+  lower <- Q1 - 1.5 * IQR_val
+  upper <- Q3 + 1.5 * IQR_val
+
+  outliers <- (x < lower | x > upper)
+  x[outliers] <- NaN
+
+  return(list(values = x, count = sum(outliers)))
+}
+
+# Apply to all numeric features
+outlier_results <- lapply(clean_menu, replace_outliers)
+
+# Extract cleaned data
+clean_menu <- as.data.frame(lapply(outlier_results, function(x) x$values))
+
+# Count NaNs introduced per feature
+nan_counts <- sapply(outlier_results, function(x) x$count)
+print("NaN counts introduced per feature:")
+print(nan_counts)
+
+# Replace NaN with mean
+filled_menu <- clean_menu
+
+for (col in names(filled_menu)) {
+  mean_val <- mean(filled_menu[[col]], na.rm = TRUE)
+  filled_menu[[col]][is.nan(filled_menu[[col]])] <- mean_val
+}
+
+# Recomputing median and sd
+medians_after <- apply(filled_menu, 2, median)
+sds_after <- apply(filled_menu, 2, sd)
+
+print("Median and SD after imputation:")
+print("Median:")
+print(medians_after)
+
+print("Standard Deviations:")
+print(sds_after)
+```
